@@ -15,13 +15,15 @@ mod benchmarking;
 pub mod weights;
 pub use weights::*;
 
+
+
+
 #[frame_support::pallet]
 pub mod pallet {
 	
 	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -37,24 +39,20 @@ pub mod pallet {
 		type MaxNameLength: Get<u32>;
 	}
 
-	
-	#[pallet::storage]
-	pub type Something<T> = StorageValue<_, u32>;
 
 	#[pallet::storage]
-	pub type Candidates<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, BoundedVec<u8, T::MaxNameLength>, OptionQuery>;
+	pub type Candidates<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		
-		SomethingStored {
-			
-			something: u32,
-			
+		Voted{
+
 			who: T::AccountId,
+			candidate: T::AccountId,
 		},
-		CandidateAddedOrUpdated(T::AccountId),
+		CandidateAdded(T::AccountId),
 		CandidateRemoved(T::AccountId)
 	}
 
@@ -72,24 +70,44 @@ pub mod pallet {
 		
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::do_something())]
-        pub fn vote(origin: OriginFor<T>, candidate: T::AccountId) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-			// Agregar lógica de votos
-            
-            Ok(())
-        }
+		pub fn vote(origin: OriginFor<T>, candidate: T::AccountId) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+		
+			// Incrementar el conteo de votos para el candidato
+			let result: Result<(), Error<T>> = Candidates::<T>::mutate(candidate.clone(), |vote_count| {
+				// Usar `match` para manejar el `Option<u32>`
+				*vote_count = match vote_count {
+					// Si ya hay algunos votos, intentar sumar 1
+					Some(count) => match count.checked_add(1) {
+						Some(new_count) => Some(new_count),
+						None => return Err(Error::<T>::StorageOverflow.into()), // Manejo adecuado del error
+					},
+					// Si aún no hay votos, inicializar a 1
+					None => Some(1),
+				};
+				Ok(())
+			});
+		
+			// Verificar resultado de mutate y manejar posible error
+			result?;
+		
+			// Emitir un evento (opcional)
+			Self::deposit_event(Event::Voted{who, candidate});
+		
+			Ok(())
+		}
+		
 
 		#[pallet::call_index(1)]
 		#[pallet::weight(T::WeightInfo::do_something())]
-		pub fn add_or_update_candidate(origin: OriginFor<T>, account_id: T::AccountId, name: BoundedVec<u8, T::MaxNameLength>) -> DispatchResult {
+		pub fn add_candidate(origin: OriginFor<T>, candidate_id: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 	
-			// Crear o actualizar la información del candidato
-			Candidates::<T>::insert(&account_id,  name );
+			// Registrar candidato
+			Candidates::<T>::insert(&candidate_id,  0 );
 	
 			// Emitir evento (opcional)
-			Self::deposit_event(Event::CandidateAddedOrUpdated(account_id));
+			Self::deposit_event(Event::CandidateAdded(candidate_id));
 	
 			Ok(())
 		}
@@ -97,18 +115,18 @@ pub mod pallet {
 
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::WeightInfo::do_something())]
-		pub fn remove_candidate(origin: OriginFor<T>, account_id: T::AccountId) -> DispatchResult {
+		pub fn remove_candidate(origin: OriginFor<T>, candidate_id: T::AccountId) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 		
 			// Eliminar el candidato
-			Candidates::<T>::remove(&account_id);
+			Candidates::<T>::remove(&candidate_id);
 		
 			// Emitir evento (opcional)
-			Self::deposit_event(Event::CandidateRemoved(account_id));
+			Self::deposit_event(Event::CandidateRemoved(candidate_id));
 		
 			Ok(())
 		}
 
-		
+
 	}
 }
